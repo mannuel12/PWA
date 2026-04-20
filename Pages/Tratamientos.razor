@@ -1,0 +1,206 @@
+﻿@page "/tratamientos"
+@using PWA.Models
+@inject PWA.Services.TratamientosSyncService TratamientosService
+
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Tratamientos</h1>
+        <p class="page-subtitle">Guarda tratamientos localmente y sincronízalos cuando haya red.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensaje))
+    {
+        <div class="custom-alert custom-alert-info">
+            @mensaje
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(mensajeError))
+    {
+        <div class="custom-alert custom-alert-danger">
+            @mensajeError
+        </div>
+    }
+
+    <div class="form-card">
+        <h2 class="section-title">Agregar tratamiento</h2>
+
+        <div class="mb-3">
+            <label class="form-label">Nombre del medicamento o tratamiento</label>
+            <input class="form-control" @bind="nuevoTratamiento.Nombre" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Dosis</label>
+            <input class="form-control" @bind="nuevoTratamiento.Dosis" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Frecuencia</label>
+            <input class="form-control" @bind="nuevoTratamiento.Frecuencia" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Fecha de inicio</label>
+            <input class="form-control" type="date" @bind="fechaInicio" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Fecha de fin</label>
+            <input class="form-control" type="date" @bind="fechaFin" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Notas</label>
+            <textarea class="form-control" @bind="nuevoTratamiento.Notas"></textarea>
+        </div>
+
+        <div class="record-actions">
+            <button class="btn btn-primary" @onclick="AgregarTratamiento">Guardar local</button>
+            <button class="btn btn-success" @onclick="Sincronizar">Sincronizar ahora</button>
+        </div>
+    </div>
+
+    <div class="list-card">
+        <h2 class="section-title">Lista de tratamientos</h2>
+
+        @if (!tratamientos.Any())
+        {
+            <p class="dashboard-text">No hay tratamientos registrados.</p>
+        }
+        else
+        {
+            <ul class="record-list">
+                @foreach (var tratamiento in tratamientos)
+                {
+                    <li class="record-item">
+                        <div class="badge-status @(tratamiento.Activo ? "badge-active" : "badge-inactive")">
+                            @(tratamiento.Activo ? "Activo" : "Finalizado")
+                        </div>
+
+                        <p class="record-title">@tratamiento.Nombre</p>
+                        <p class="record-text"><strong>Dosis:</strong> @tratamiento.Dosis</p>
+                        <p class="record-text"><strong>Frecuencia:</strong> @tratamiento.Frecuencia</p>
+                        <p class="record-text"><strong>Inicio:</strong> @tratamiento.FechaInicio.ToString("dd/MM/yyyy")</p>
+                        <p class="record-text"><strong>Fin:</strong> @(tratamiento.FechaFin.HasValue? tratamiento.FechaFin.Value.ToString("dd/MM/yyyy") : "Sin fecha de fin")</p>
+                        <p class="record-text"><strong>Notas:</strong> @tratamiento.Notas</p>
+                        <p class="record-text"><strong>Estado sync:</strong> @tratamiento.SyncStatus</p>
+
+                        <div class="record-actions">
+                            <button class="btn btn-warning btn-sm" @onclick="() => CambiarEstado(tratamiento.LocalId)">
+                                @(tratamiento.Activo ? "Marcar como finalizado" : "Reactivar")
+                            </button>
+
+                            <button class="btn btn-danger btn-sm" @onclick="() => EliminarTratamiento(tratamiento.LocalId)">
+                                Eliminar
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@code {
+    private Tratamiento nuevoTratamiento = new();
+    private List<Tratamiento> tratamientos = new();
+
+    private DateTime fechaInicio = DateTime.Today;
+    private DateTime? fechaFin;
+
+    private string mensajeError = string.Empty;
+    private string mensaje = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Recargar();
+    }
+
+    private async Task Recargar()
+    {
+        tratamientos = await TratamientosService.ObtenerTodosAsync();
+    }
+
+    private async Task AgregarTratamiento()
+    {
+        mensajeError = string.Empty;
+        mensaje = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(nuevoTratamiento.Nombre))
+        {
+            mensajeError = "Debes ingresar el nombre del tratamiento o medicamento.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(nuevoTratamiento.Dosis))
+        {
+            mensajeError = "Debes ingresar la dosis.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(nuevoTratamiento.Frecuencia))
+        {
+            mensajeError = "Debes ingresar la frecuencia.";
+            return;
+        }
+
+        if (fechaFin.HasValue && fechaFin.Value < fechaInicio)
+        {
+            mensajeError = "La fecha de fin no puede ser anterior a la fecha de inicio.";
+            return;
+        }
+
+        try
+        {
+            nuevoTratamiento.FechaInicio = fechaInicio;
+            nuevoTratamiento.FechaFin = fechaFin;
+            nuevoTratamiento.Activo = true;
+
+            await TratamientosService.AgregarLocalAsync(nuevoTratamiento);
+
+            nuevoTratamiento = new Tratamiento();
+            fechaInicio = DateTime.Today;
+            fechaFin = null;
+
+            mensaje = "Tratamiento guardado localmente.";
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            mensajeError = $"Error al guardar localmente: {ex.Message}";
+        }
+    }
+
+    private async Task EliminarTratamiento(string localId)
+    {
+        await TratamientosService.EliminarLocalAsync(localId);
+        mensaje = "Tratamiento marcado para eliminación local.";
+        await Recargar();
+    }
+
+    private async Task CambiarEstado(string localId)
+    {
+        await TratamientosService.CambiarEstadoLocalAsync(localId);
+        mensaje = "Estado del tratamiento actualizado localmente.";
+        await Recargar();
+    }
+
+    private async Task Sincronizar()
+    {
+        mensajeError = string.Empty;
+        mensaje = string.Empty;
+
+        try
+        {
+            var total = await TratamientosService.SincronizarAsync();
+            mensaje = $"Sincronización completada. Registros procesados: {total}.";
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            //mensajeError = $"No se pudo sincronizar: {ex.Message}";
+            mensajeError = $"En proceso...";
+        }
+    }
+}

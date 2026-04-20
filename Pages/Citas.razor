@@ -1,0 +1,166 @@
+﻿@page "/citas"
+@using PWA.Models
+@inject PWA.Services.CitasSyncService CitasService
+
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Citas médicas</h1>
+        <p class="page-subtitle">Guarda localmente y sincroniza cuando haya red.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensaje))
+    {
+        <div class="custom-alert custom-alert-info">
+            @mensaje
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="custom-alert custom-alert-danger">
+            @error
+        </div>
+    }
+
+    <div class="form-card">
+        <h2 class="section-title">Agregar cita</h2>
+
+        <div class="mb-3">
+            <label class="form-label">Lugar</label>
+            <input class="form-control" @bind="nuevaCita.Lugar" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Tipo de consulta</label>
+            <input class="form-control" @bind="nuevaCita.TipoConsulta" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Fecha y hora</label>
+            <input class="form-control" type="datetime-local" @bind="fechaHora" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Notas</label>
+            <textarea class="form-control" @bind="nuevaCita.Notas"></textarea>
+        </div>
+
+        <div class="record-actions">
+            <button class="btn btn-primary" @onclick="AgregarCita">Guardar local</button>
+            <button class="btn btn-success" @onclick="Sincronizar">Sincronizar ahora</button>
+        </div>
+    </div>
+
+    <div class="list-card">
+        <h2 class="section-title">Lista de citas</h2>
+
+        @if (!citas.Any())
+        {
+            <p>No hay citas registradas.</p>
+        }
+        else
+        {
+            <ul class="record-list">
+                @foreach (var cita in citas)
+                {
+                    <li class="record-item">
+                        <p class="record-title">@cita.TipoConsulta</p>
+                        <p class="record-text"><strong>Lugar:</strong> @cita.Lugar</p>
+                        <p class="record-text"><strong>Fecha:</strong> @cita.FechaHora.ToString("dd/MM/yyyy HH:mm")</p>
+                        <p class="record-text"><strong>Estado sync:</strong> @cita.SyncStatus</p>
+
+                        <div class="record-actions">
+                            <button class="btn btn-danger btn-sm" @onclick="() => EliminarCita(cita.LocalId)">
+                                Eliminar
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@code {
+    private CitaMedica nuevaCita = new();
+    private DateTime? fechaHora;
+    private List<CitaMedica> citas = new();
+    private string mensaje = string.Empty;
+    private string error = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Recargar();
+    }
+
+    private async Task Recargar()
+    {
+        citas = await CitasService.ObtenerTodasAsync();
+    }
+
+    private async Task AgregarCita()
+    {
+        error = string.Empty;
+        mensaje = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(nuevaCita.Lugar))
+        {
+            error = "Debes ingresar el lugar.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(nuevaCita.TipoConsulta))
+        {
+            error = "Debes ingresar el tipo de consulta.";
+            return;
+        }
+
+        if (!fechaHora.HasValue)
+        {
+            error = "Debes seleccionar la fecha y hora.";
+            return;
+        }
+
+        try
+        {
+            nuevaCita.FechaHora = fechaHora.Value;
+
+            await CitasService.AgregarLocalAsync(nuevaCita);
+
+            nuevaCita = new CitaMedica();
+            fechaHora = null;
+            mensaje = "Cita guardada localmente.";
+
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al guardar localmente: {ex.Message}";
+        }
+    }
+
+    private async Task EliminarCita(string localId)
+    {
+        await CitasService.EliminarLocalAsync(localId);
+        mensaje = "Cita marcada para eliminación local.";
+        await Recargar();
+    }
+
+    private async Task Sincronizar()
+    {
+        error = string.Empty;
+        mensaje = string.Empty;
+
+        try
+        {
+            var total = await CitasService.SincronizarAsync();
+            mensaje = $"Sincronización completada. Registros procesados: {total}.";
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            //error = $"No se pudo sincronizar: {ex.Message}";
+            error = $"En proceso...";
+        }
+    }
+}

@@ -1,0 +1,185 @@
+﻿@page "/seguimiento"
+@using PWA.Models
+@inject PWA.Services.SaludSyncService SaludService
+
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Seguimiento de salud</h1>
+        <p class="page-subtitle">Guarda registros localmente y sincronízalos cuando haya red.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensaje))
+    {
+        <div class="custom-alert custom-alert-info">
+            @mensaje
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(mensajeError))
+    {
+        <div class="custom-alert custom-alert-danger">
+            @mensajeError
+        </div>
+    }
+
+    <div class="form-card">
+        <h2 class="section-title">Agregar registro</h2>
+
+        <div class="mb-3">
+            <label class="form-label">Fecha y hora</label>
+            <input class="form-control" type="datetime-local" @bind="fechaRegistro" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Peso (kg)</label>
+            <input class="form-control" type="number" step="0.1" @bind="nuevoRegistro.Peso" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Presión sistólica</label>
+            <input class="form-control" type="number" @bind="nuevoRegistro.PresionSistolica" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Presión diastólica</label>
+            <input class="form-control" type="number" @bind="nuevoRegistro.PresionDiastolica" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Notas</label>
+            <textarea class="form-control" @bind="nuevoRegistro.Notas"></textarea>
+        </div>
+
+        <div class="record-actions">
+            <button class="btn btn-primary" @onclick="AgregarRegistro">Guardar local</button>
+            <button class="btn btn-success" @onclick="Sincronizar">Sincronizar ahora</button>
+        </div>
+    </div>
+
+    <div class="list-card">
+        <h2 class="section-title">Historial de salud</h2>
+
+        @if (!registros.Any())
+        {
+            <p class="dashboard-text">No hay registros guardados.</p>
+        }
+        else
+        {
+            <ul class="record-list">
+                @foreach (var registro in registros)
+                {
+                    <li class="record-item">
+                        <p class="record-text"><strong>Fecha:</strong> @registro.FechaRegistro.ToString("dd/MM/yyyy HH:mm")</p>
+                        <p class="record-text"><strong>Peso:</strong> @registro.Peso kg</p>
+                        <p class="record-text"><strong>Presión:</strong> @registro.PresionSistolica/@registro.PresionDiastolica mmHg</p>
+                        <p class="record-text"><strong>Notas:</strong> @registro.Notas</p>
+                        <p class="record-text"><strong>Estado sync:</strong> @registro.SyncStatus</p>
+
+                        <div class="record-actions">
+                            <button class="btn btn-danger btn-sm" @onclick="() => EliminarRegistro(registro.LocalId)">
+                                Eliminar
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@code {
+    private RegistroSalud nuevoRegistro = new();
+    private List<RegistroSalud> registros = new();
+    private DateTime? fechaRegistro = DateTime.Now;
+
+    private string mensajeError = string.Empty;
+    private string mensaje = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Recargar();
+    }
+
+    private async Task Recargar()
+    {
+        registros = await SaludService.ObtenerTodosAsync();
+    }
+
+    private async Task AgregarRegistro()
+    {
+        mensajeError = string.Empty;
+        mensaje = string.Empty;
+
+        if (!fechaRegistro.HasValue)
+        {
+            mensajeError = "Debes seleccionar la fecha del registro.";
+            return;
+        }
+
+        if (nuevoRegistro.Peso <= 0)
+        {
+            mensajeError = "El peso debe ser mayor que 0.";
+            return;
+        }
+
+        if (nuevoRegistro.PresionSistolica <= 0)
+        {
+            mensajeError = "La presión sistólica debe ser mayor que 0.";
+            return;
+        }
+
+        if (nuevoRegistro.PresionDiastolica <= 0)
+        {
+            mensajeError = "La presión diastólica debe ser mayor que 0.";
+            return;
+        }
+
+        if (nuevoRegistro.PresionSistolica <= nuevoRegistro.PresionDiastolica)
+        {
+            mensajeError = "La presión sistólica debe ser mayor que la diastólica.";
+            return;
+        }
+
+        try
+        {
+            nuevoRegistro.FechaRegistro = fechaRegistro.Value;
+
+            await SaludService.AgregarLocalAsync(nuevoRegistro);
+
+            nuevoRegistro = new RegistroSalud();
+            fechaRegistro = DateTime.Now;
+            mensaje = "Registro guardado localmente.";
+
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            mensajeError = $"Error al guardar localmente: {ex.Message}";
+        }
+    }
+
+    private async Task EliminarRegistro(string localId)
+    {
+        await SaludService.EliminarLocalAsync(localId);
+        mensaje = "Registro marcado para eliminación local.";
+        await Recargar();
+    }
+
+    private async Task Sincronizar()
+    {
+        mensajeError = string.Empty;
+        mensaje = string.Empty;
+
+        try
+        {
+            var total = await SaludService.SincronizarAsync();
+            mensaje = $"Sincronización completada. Registros procesados: {total}.";
+            await Recargar();
+        }
+        catch (Exception ex)
+        {
+            //mensajeError = $"No se pudo sincronizar: {ex.Message}";
+            mensajeError = $"En proceso...";
+        }
+    }
+}
